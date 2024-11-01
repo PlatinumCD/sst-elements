@@ -14,9 +14,11 @@ isa="riscv64"
 
 loader_mode = os.getenv("VANADIS_LOADER_MODE", "0")
 
-exe = "quantize_analog_library_example"
+exe = "analog_library_example"
 full_exe_name = os.getenv("VANADIS_EXE", "./" + exe)
 exe_name= full_exe_name.split("/")[-1]
+crosssim_json = 'crossSimConfig.json'
+crosssim_json_params = os.getenv("CROSSSIM_JSON_PARAMS", "./" + crosssim_json)
 
 physMemSize = "4GiB"
 
@@ -171,7 +173,6 @@ memCtrlParams = {
       "addr_range_end": 0xffffffff,
       "debug_level" : mh_debug_level,
       "debug" : mh_debug,
-
 }
 
 memParams = {
@@ -253,11 +254,12 @@ arrayParams = {
     "mmioAddr" : 0,
     "numArrays" : 1,
     "arrayInputSize" : 6,
-    "arrayOutputSize" : 5
+    "arrayOutputSize" : 5,
+    "CrossSimJSONParameters" : crosssim_json_params
 }
 
 roccarrayParams = {
-    "inputOperandSize" : 1,
+    "inputOperandSize" : 4,
     "outputOperandSize" : 4
 }
 
@@ -352,7 +354,7 @@ class CPU_Builder:
         cpu_lsq.addParams(lsqParams)
         cpu_lsq.enableAllStatistics()
 
-        cpu_rocc = cpu.setSubComponent( "rocc0", "golem.RoCCAnalogInt")
+        cpu_rocc = cpu.setSubComponent( "rocc0", "golem.RoCCAnalogFloat")
         cpu_rocc.addParams(roccParams)
         cpu_rocc.enableAllStatistics()
 
@@ -360,7 +362,7 @@ class CPU_Builder:
         cpuDcacheIf = cpu_lsq.setSubComponent( "memory_interface", "memHierarchy.standardInterface" )
 
         # CPU.rocc compute array 
-        computeArray = cpu_rocc.setSubComponent( "array", "golem.EmulatedIntArray" )
+        computeArray = cpu_rocc.setSubComponent( "array", "golem.CrossSimFloatArray" )
         computeArray.addParams(arrayParams)
 
         # CPU.rocc mem interface which connects to D-cache 

@@ -7,12 +7,12 @@
 namespace SST {
 namespace Golem {
 
-class EmulatedIntMVMArray : public EmulatedComputeArray<int64_t> {
+class EmulatedIntArray : public EmulatedComputeArray<int64_t> {
 public:
     SST_ELI_REGISTER_SUBCOMPONENT(
-        EmulatedIntMVMArray,
+        EmulatedIntArray,
         "golem",
-        "EmulatedIntMVMArray",
+        "EmulatedIntArray",
         SST_ELI_ELEMENT_VERSION(1, 0, 0),
         "Implements a Compute array using manual MVM with integer representation",
         SST::Golem::EmulatedComputeArray<int64_t>
@@ -31,7 +31,7 @@ public:
         {"outputOperandSize",  "Number of bytes in a single output value"},
     )
 
-    EmulatedIntMVMArray(ComponentId_t id, Params& params,
+    EmulatedIntArray(ComponentId_t id, Params& params,
         TimeConverter* tc,
         Event::HandlerBase* handler)
         : EmulatedComputeArray<int64_t>(id, params, tc, handler) {

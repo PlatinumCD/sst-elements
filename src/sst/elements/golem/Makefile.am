@@ -14,11 +14,11 @@ libgolem_la_SOURCES = \
 	array/emulatedComputeArray.h \
 	array/emulatedFloatArray.h \
 	array/emulatedIntArray.h \
+	array/crossSimComputeArray.h \
+	array/crossSimFloatArray.h \
 	rocc/roccAnalog.h \
 	rocc/roccAnalogFloat.h \
 	rocc/roccAnalogInt.h
-
-#	array/crossSimComputeArray.h
 
 
 #EXTRA_DIST = \

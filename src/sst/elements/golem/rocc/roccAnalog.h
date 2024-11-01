@@ -243,7 +243,7 @@ public:
     }
 
     // Optional: Output the stored array for debugging purposes
-    output->verbose(CALL_INFO, 2, 0, "Stored array %llu:\n", rs2);
+    output->verbose(CALL_INFO, 2, 0, "Stored array %lu:\n", rs2);
     for (size_t i = 0; i < static_cast<size_t>(arrayOutputSize); i++) {
       if constexpr (std::is_same<T, float>::value || std::is_same<T, double>::value) {
         output->output("%f ", static_cast<double>(outputVector[i]));
@@ -280,7 +280,7 @@ public:
     auto& inputVector = *static_cast<std::vector<T>*>(array->getInputVector(rs2));
 
     output->verbose(CALL_INFO, 2, 0,
-                    "Moved array %llu to array %llu. Array %llu:\n", rs1, rs2,
+                    "Moved array %lu to array %lu. Array %lu:\n", rs1, rs2,
                     rs2);
     for (int i = 0; i < arrayInputSize; i++) {
       if constexpr (std::is_same<T, float>::value || std::is_same<T, double>::value) {
@@ -322,7 +322,7 @@ public:
 
     virtual void handle(StandardMem::ReadResp *ev) {
       out->verbose(CALL_INFO, 2, 0,
-                   "-> handle read-response (virt-addr: 0x%llx)\n", ev->vAddr);
+                   "-> handle read-response (virt-addr: 0x%lx)\n", ev->vAddr);
       SST::Vanadis::RoCCCommand *rocc_cmd = rocc->curr_cmd;
 
       if (ev->getFail()) {
@@ -410,7 +410,7 @@ public:
 
     virtual void handle(StandardMem::WriteResp *ev) {
       out->verbose(CALL_INFO, 2, 0,
-                   "-> handle write-response (virt-addr: 0x%llx)\n", ev->vAddr);
+                   "-> handle write-response (virt-addr: 0x%lx)\n", ev->vAddr);
       if (ev->getFail()) {
         out->verbose(CALL_INFO, 2, 0,
                      "RoCC store failed, responding with error code 1\n");

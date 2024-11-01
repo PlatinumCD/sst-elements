@@ -1,21 +1,21 @@
-#ifndef _EMULATEDFLOATMVMARRAY_H
-#define _EMULATEDFLOATMVMARRAY_H
+#ifndef _CROSSSIMFLOATMVMARRAY_H
+#define _CROSSSIMFLOATMVMARRAY_H
 
 #include <sst/core/component.h>
-#include <sst/elements/golem/array/emulatedComputeArray.h>
+#include <sst/elements/golem/array/crossSimComputeArray.h>
 
 namespace SST {
 namespace Golem {
 
-class EmulatedFloatArray : public EmulatedComputeArray<float> {
+class CrossSimFloatArray : public CrossSimComputeArray<float> {
 public:
     SST_ELI_REGISTER_SUBCOMPONENT(
-        EmulatedFloatArray,
+        CrossSimFloatArray,
         "golem",
-        "EmulatedFloatArray",
+        "CrossSimFloatArray",
         SST_ELI_ELEMENT_VERSION(1, 0, 0),
         "Implements a Compute array using manual MVM with floating-point representation",
-        SST::Golem::EmulatedComputeArray<float>
+        SST::Golem::CrossSimComputeArray<float>
     )
 
     SST_ELI_DOCUMENT_PARAMS(
@@ -29,12 +29,13 @@ public:
         {"arrayOutputSize",    "Length of output vector (implies array columns)"},
         {"inputOperandSize",   "Number of bytes in a single input value"},
         {"outputOperandSize",  "Number of bytes in a single output value"},
+        {"CrossSimJSONParameters",  "Path to CrossSim JSON parameters file."},
     )
 
-    EmulatedFloatArray(ComponentId_t id, Params& params,
+    CrossSimFloatArray(ComponentId_t id, Params& params,
         TimeConverter* tc,
         Event::HandlerBase* handler)
-        : EmulatedComputeArray<float>(id, params, tc, handler) {
+        : CrossSimComputeArray<float>(id, params, tc, handler) {
         // Constructor can be empty if no additional initialization is required
     }
 };

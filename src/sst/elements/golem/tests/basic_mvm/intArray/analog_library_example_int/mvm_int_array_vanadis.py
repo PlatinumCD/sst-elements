@@ -360,7 +360,7 @@ class CPU_Builder:
         cpuDcacheIf = cpu_lsq.setSubComponent( "memory_interface", "memHierarchy.standardInterface" )
 
         # CPU.rocc compute array 
-        computeArray = cpu_rocc.setSubComponent( "array", "golem.EmulatedIntMVMArray" )
+        computeArray = cpu_rocc.setSubComponent( "array", "golem.EmulatedIntArray" )
         computeArray.addParams(arrayParams)
 
         # CPU.rocc mem interface which connects to D-cache 

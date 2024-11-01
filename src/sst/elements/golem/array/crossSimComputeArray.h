@@ -23,14 +23,14 @@ public:
     )
 
     SST_ELI_DOCUMENT_PARAMS(
-        {"CrossSimJSON", "JSON configuration for CrossSim", ""}
+        {"CrossSimJSONParameters", "JSON configuration for CrossSim", ""}
     )
 
     CrossSimComputeArray(ComponentId_t id, Params& params,
                          TimeConverter* tc,
                          Event::HandlerBase* handler)
         : ComputeArray(id, params, tc, handler) {
-        CrossSimJSON = params.find<std::string>("CrossSimJSON", std::string());
+        CrossSimJSON = params.find<std::string>("CrossSimJSONParameters", std::string());
 
         // Configure selfLink
         selfLink = configureSelfLink("Self", tc, new Event::Handler<CrossSimComputeArray>(this, &CrossSimComputeArray::handleSelfEvent));
@@ -45,9 +45,18 @@ public:
         npMatrix = new PyArrayObject*[numArrays];
         pyArrayIn = new PyObject*[numArrays];
         npArrayIn = new PyArrayObject*[numArrays];
+        pyArrayOut = new PyObject*[numArrays];
+        npArrayOut = new PyArrayObject*[numArrays];
         cores = new PyObject*[numArrays];
         setMatrixFunction = new PyObject*[numArrays];
-        runMVM = new PyObject*[numArrays];
+        computeMVM = new PyObject*[numArrays];
+
+        inputVectors.resize(numArrays);
+        outputVectors.resize(numArrays);
+        for (uint32_t i = 0; i < numArrays; i++) {
+            inputVectors[i].resize(inputArraySize, T());
+            outputVectors[i].resize(outputArraySize, T());
+        }
     }
 
     virtual ~CrossSimComputeArray() {
@@ -55,17 +64,20 @@ public:
         for (uint32_t i = 0; i < numArrays; i++) {
             Py_DECREF(pyMatrix[i]);
             Py_DECREF(pyArrayIn[i]);
+            Py_DECREF(pyArrayOut[i]);
             Py_DECREF(cores[i]);
             Py_DECREF(setMatrixFunction[i]);
-            Py_DECREF(runMVM[i]);
+            Py_DECREF(computeMVM[i]);
         }
         delete[] pyMatrix;
         delete[] npMatrix;
         delete[] pyArrayIn;
         delete[] npArrayIn;
+        delete[] pyArrayOut;
+        delete[] npArrayOut;
         delete[] cores;
         delete[] setMatrixFunction;
-        delete[] runMVM;
+        delete[] computeMVM;
 
         Py_DECREF(crossSim);
         Py_DECREF(paramsConstructor);
@@ -146,8 +158,8 @@ public:
                     PyErr_Print();
                 }
 
-                runMVM[i] = PyObject_GetAttrString(cores[i], "matvec");
-                if (!runMVM[i]) {
+                computeMVM[i] = PyObject_GetAttrString(cores[i], "matvec");
+                if (!computeMVM[i]) {
                     out.fatal(CALL_INFO, -1, "Get core.matvec failed\n");
                     PyErr_Print();
                 }
@@ -174,6 +186,14 @@ public:
         T val = static_cast<T>(value);
         T* data = reinterpret_cast<T*>(PyArray_DATA(npMatrix[arrayID]));
         data[index] = val;
+
+        if (index == inputArraySize * outputArraySize - 1) {
+            PyObject* status = PyObject_CallFunctionObjArgs(setMatrixFunction[arrayID], npMatrix[arrayID], NULL);
+            if (!status) {
+                out.fatal(CALL_INFO, -1, "Call to core.set_matrix failed\n");
+                PyErr_Print();
+            }
+        }
     }
 
     virtual void setVectorItem(int32_t arrayID, int32_t index, double value) override {
@@ -184,25 +204,35 @@ public:
 
     virtual void compute(uint32_t arrayID) override {
         // Call MVM
-        PyObject* pyArrayOut = PyObject_CallFunctionObjArgs(runMVM[arrayID], npArrayIn[arrayID], NULL);
-        if (!pyArrayOut) {
+        pyArrayOut[arrayID] = PyObject_CallFunctionObjArgs(computeMVM[arrayID], npArrayIn[arrayID], NULL);
+        if (!pyArrayOut[arrayID]) {
             out.fatal(CALL_INFO, -1, "Run MVM Call Failed\n");
             PyErr_Print();
         }
-        PyArrayObject* npArrayOut = reinterpret_cast<PyArrayObject*>(pyArrayOut);
-        T* cArrayOut = reinterpret_cast<T*>(PyArray_DATA(npArrayOut));
-        int len = PyArray_SIZE(npArrayOut);
+        npArrayOut[arrayID] = reinterpret_cast<PyArrayObject*>(pyArrayOut[arrayID]);
+        T* outputVector = reinterpret_cast<T*>(PyArray_DATA(npArrayOut[arrayID]));
+        int len = PyArray_SIZE(npArrayOut[arrayID]);
         outputVectors[arrayID].resize(len);
-        std::copy(cArrayOut, cArrayOut + len, outputVectors[arrayID].begin());
+        std::copy(outputVector, outputVector + len, outputVectors[arrayID].begin());
 
-        // Optionally, print the output vector
+        T* inputVector = reinterpret_cast<T*>(PyArray_DATA(npArrayIn[arrayID]));
+        T* matrix = reinterpret_cast<T*>(PyArray_DATA(npMatrix[arrayID]));
+
         out.verbose(CALL_INFO, 2, 0, "CrossSim MVM on array %u:\n", arrayID);
-        for (int i = 0; i < len; i++) {
-            outputValue(outputVectors[arrayID][i]);
+        for (uint32_t col = 0; col < inputArraySize; col++) {
+            printValue(inputVector[col]);
         }
-        out.output("\n");
+        out.output("\n\n");
 
-        Py_DECREF(pyArrayOut); // Decrease reference count
+        for (uint32_t row = 0; row < outputArraySize; row++) {
+            for (uint32_t col = 0; col < inputArraySize; col++) {
+                printValue(matrix[row * inputArraySize + col]);
+            }
+            out.output("  ");
+            printValue(outputVector[row]);
+            out.output("\n");
+        }
+        out.output("\n\n");
     }
 
     virtual SimTime_t getArrayLatency(uint32_t arrayID) override {
@@ -216,17 +246,17 @@ public:
         std::copy(srcData, srcData + outputArraySize, destData);
     }
 
-    virtual std::vector<T>& getInputVector(uint32_t arrayID) {
+    virtual void* getInputVector(uint32_t arrayID) {
         // Convert NumPy array data to std::vector (if needed)
         T* data = reinterpret_cast<T*>(PyArray_DATA(npArrayIn[arrayID]));
         int len = PyArray_SIZE(npArrayIn[arrayID]);
         inputVectors[arrayID].resize(len);
         std::copy(data, data + len, inputVectors[arrayID].begin());
-        return inputVectors[arrayID];
+        return static_cast<void*>(&inputVectors[arrayID]);
     }
 
-    virtual std::vector<T>& getOutputVector(uint32_t arrayID) {
-        return outputVectors[arrayID];
+    virtual void* getOutputVector(uint32_t arrayID) {
+        return static_cast<void*>(&outputVectors[arrayID]);
     }
 
 protected:
@@ -241,10 +271,13 @@ protected:
     PyArrayObject** npMatrix = nullptr;
     PyObject** pyArrayIn = nullptr;
     PyArrayObject** npArrayIn = nullptr;
+    PyObject** pyArrayOut = nullptr;
+    PyArrayObject** npArrayOut = nullptr;
     PyObject** cores = nullptr;
     PyObject** setMatrixFunction = nullptr;
-    PyObject** runMVM = nullptr;
+    PyObject** computeMVM = nullptr;
 
+    std::vector<std::vector<T>> inputVectors;
     std::vector<std::vector<T>> outputVectors;
 
     int getNumpyType() {
@@ -257,7 +290,7 @@ protected:
         }
     }
 
-    void outputValue(const T& value) {
+    void printValue(const T& value) {
         if constexpr (std::is_same<T, int64_t>::value) {
             out.output("%ld ", value);
         } else if constexpr (std::is_same<T, float>::value) {
