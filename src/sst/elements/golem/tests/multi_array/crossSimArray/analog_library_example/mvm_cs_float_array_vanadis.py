@@ -14,7 +14,7 @@ isa="riscv64"
 
 loader_mode = os.getenv("VANADIS_LOADER_MODE", "0")
 
-exe = "intrinsics_example"
+exe = "analog_library_example"
 full_exe_name = os.getenv("VANADIS_EXE", "./" + exe)
 exe_name= full_exe_name.split("/")[-1]
 #crosssim_json = 'crossSimConfig.json'
@@ -252,10 +252,10 @@ arrayParams = {
     "max_instructions" : 8,
     "verbose" : 20,
     "mmioAddr" : 0,
-    "numArrays" : 1,
-    "arrayInputSize" : 3,
-    "arrayOutputSize" : 16,
-    #"CrossSimJSONParameters" : crosssim_json_params
+    "numArrays" : 2,
+    "arrayInputSize" : 6,
+    "arrayOutputSize" : 5,
+#    "CrossSimJSONParameters" : crosssim_json_params
 }
 
 roccarrayParams = {

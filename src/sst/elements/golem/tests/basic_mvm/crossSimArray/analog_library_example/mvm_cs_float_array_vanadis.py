@@ -17,8 +17,8 @@ loader_mode = os.getenv("VANADIS_LOADER_MODE", "0")
 exe = "analog_library_example"
 full_exe_name = os.getenv("VANADIS_EXE", "./" + exe)
 exe_name= full_exe_name.split("/")[-1]
-crosssim_json = 'crossSimConfig.json'
-crosssim_json_params = os.getenv("CROSSSIM_JSON_PARAMS", "./" + crosssim_json)
+#crosssim_json = 'crossSimConfig.json'
+#crosssim_json_params = os.getenv("CROSSSIM_JSON_PARAMS", "./" + crosssim_json)
 
 physMemSize = "4GiB"
 
@@ -255,7 +255,7 @@ arrayParams = {
     "numArrays" : 1,
     "arrayInputSize" : 6,
     "arrayOutputSize" : 5,
-    "CrossSimJSONParameters" : crosssim_json_params
+#    "CrossSimJSONParameters" : crosssim_json_params
 }
 
 roccarrayParams = {

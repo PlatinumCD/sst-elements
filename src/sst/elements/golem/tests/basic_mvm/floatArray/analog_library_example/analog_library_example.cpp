@@ -47,7 +47,6 @@ int main() {
     mvm_load_vector(ctx, analog_vec, array_id);
 
     // Print the matrix and vector
-    ctx.print();
     analog_mat.print();
     analog_vec.print();
 

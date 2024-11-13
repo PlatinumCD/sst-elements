@@ -23,10 +23,6 @@ Contains analog specifications for RoCC.
 
 ### `golem/tests`
 Includes tests for different MVM applications. Below is the structure of planned and completed tests.
-
-- **multi_array_mvm**: Planned but not yet completed.
-- **multi_core_mvm**: Planned but not yet completed.
-- **multi_array_multi_core_mvm**: Planned but not yet completed.
 - **basic_mvm**: Contains basic MVM tests on three compute arrays:
   - **crossSimArray**
     - `analog_library_example`: MVM example using CrossSimArray and analog library.
@@ -38,6 +34,20 @@ Includes tests for different MVM applications. Below is the structure of planned
     - `analog_library_example_int`: MVM example using EmulatedIntArray and analog library.
     - `analog_library_example_float`: MVM example using EmulatedIntArray with quantized float values.
     - `intrinsics_example`: MVM example using EmulatedIntArray.
+- **multi_array**: Contains a "ping-pong" tests between multiple compute arrays. The tests usee the three compute arrays:
+  - **crossSimArray**
+    - `analog_library_example`: Ping-Pong MVM example using CrossSimArray and analog library.
+    - `intrinsics_example`: Ping-Pong MVM example using CrossSimArray.
+  - **floatArray**
+    - `analog_library_example`: Ping-Pong MVM example using EmulatedFloatArray and analog library.
+    - `intrinsics_example`: Ping-Pong MVM example using EmulatedFloatArray.
+  - **intArray**
+    - `analog_library_example_int`: Ping-Pong MVM example using EmulatedIntArray and analog library.
+    - `intrinsics_example`: Ping-Pong MVM example using EmulatedIntArray.
+    - `analog_library_example_float`: Planned but not yet complete 
+
+- **multi_core_mvm**: Planned but not yet completed.
+- **multi_array_multi_core_mvm**: Planned but not yet completed.
 
 ### Files
 

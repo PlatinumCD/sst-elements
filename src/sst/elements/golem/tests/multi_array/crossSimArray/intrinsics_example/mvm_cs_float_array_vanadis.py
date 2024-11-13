@@ -252,10 +252,10 @@ arrayParams = {
     "max_instructions" : 8,
     "verbose" : 20,
     "mmioAddr" : 0,
-    "numArrays" : 1,
-    "arrayInputSize" : 3,
-    "arrayOutputSize" : 16,
-    #"CrossSimJSONParameters" : crosssim_json_params
+    "numArrays" : 2,
+    "arrayInputSize" : 5,
+    "arrayOutputSize" : 5,
+#    "CrossSimJSONParameters" : crosssim_json_params
 }
 
 roccarrayParams = {

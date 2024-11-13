@@ -17,8 +17,6 @@ loader_mode = os.getenv("VANADIS_LOADER_MODE", "0")
 exe = "intrinsics_example"
 full_exe_name = os.getenv("VANADIS_EXE", "./" + exe)
 exe_name= full_exe_name.split("/")[-1]
-#crosssim_json = 'crossSimConfig.json'
-#crosssim_json_params = os.getenv("CROSSSIM_JSON_PARAMS", "./" + crosssim_json)
 
 physMemSize = "4GiB"
 
@@ -252,10 +250,9 @@ arrayParams = {
     "max_instructions" : 8,
     "verbose" : 20,
     "mmioAddr" : 0,
-    "numArrays" : 1,
-    "arrayInputSize" : 3,
-    "arrayOutputSize" : 16,
-    #"CrossSimJSONParameters" : crosssim_json_params
+    "numArrays" : 2,
+    "arrayInputSize" : 5,
+    "arrayOutputSize" : 5
 }
 
 roccarrayParams = {
@@ -362,7 +359,7 @@ class CPU_Builder:
         cpuDcacheIf = cpu_lsq.setSubComponent( "memory_interface", "memHierarchy.standardInterface" )
 
         # CPU.rocc compute array 
-        computeArray = cpu_rocc.setSubComponent( "array", "golem.CrossSimFloatArray" )
+        computeArray = cpu_rocc.setSubComponent( "array", "golem.EmulatedFloatArray" )
         computeArray.addParams(arrayParams)
 
         # CPU.rocc mem interface which connects to D-cache 

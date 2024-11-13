@@ -23,14 +23,14 @@ public:
     )
 
     SST_ELI_DOCUMENT_PARAMS(
-        {"CrossSimJSONParameters", "JSON configuration for CrossSim", ""}
+        {"CrossSimJSONParameters", "JSON configuration for CrossSim", "default"}
     )
 
     CrossSimComputeArray(ComponentId_t id, Params& params,
                          TimeConverter* tc,
                          Event::HandlerBase* handler)
         : ComputeArray(id, params, tc, handler) {
-        CrossSimJSON = params.find<std::string>("CrossSimJSONParameters", std::string());
+        CrossSimJSON = params.find<std::string>("CrossSimJSONParameters");
 
         // Configure selfLink
         selfLink = configureSelfLink("Self", tc, new Event::Handler<CrossSimComputeArray>(this, &CrossSimComputeArray::handleSelfEvent));
