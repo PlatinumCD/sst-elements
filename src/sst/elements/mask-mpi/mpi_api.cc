@@ -110,15 +110,14 @@ namespace SST::MASKMPI {
 MpiApi* mask_mpi()
 {
   SST::Hg::Thread* t = SST::Hg::OperatingSystem::currentThread();
-  return t->getApi<MpiApi>("MpiApi");
+  return t->getLibrary<MpiApi>("MpiApi");
 }
 
 //
 // Build a new mpiapi.
 //
-MpiApi::MpiApi(SST::Params& params, SST::Hg::App* app,
-               SST::Component* comp) :
-  SST::Iris::sumi::SimTransport(params, app, comp),
+MpiApi::MpiApi(SST::Params& params, SST::Hg::App* app) :
+  SST::Iris::sumi::SimTransport(params, app),
   queue_(nullptr),
   next_type_id_(0),
   next_op_id_(first_custom_op_id),
@@ -189,12 +188,13 @@ MpiApi::~MpiApi()
     delete comm;
   }
 
-  //people can be sloppy cleaning up requests
-  //clean up for them
-  for (auto& pair : req_map_){
-    MpiRequest* req = pair.second;
-    delete req;
-  }
+  // This causes a "pointer being freed was not allocated" error
+  // //people can be sloppy cleaning up requests
+  // //clean up for them
+  // for (auto& pair : req_map_){
+  //   MpiRequest* req = pair.second;
+  //   delete req;
+  // }
 
   if (qos_analysis_) delete qos_analysis_;
 }
