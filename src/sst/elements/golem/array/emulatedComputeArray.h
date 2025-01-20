@@ -95,7 +95,7 @@ public:
     }
 
     virtual void moveOutputToInput(uint32_t srcArrayID, uint32_t destArrayID) override {
-        inputVectors[destArrayID] = outputVectors[srcArrayID];
+        std::copy(outputVectors[srcArrayID].begin(), outputVectors[srcArrayID].end(), inputVectors[destArrayID].begin());
     }
 
     virtual void* getInputVector(uint32_t arrayID) override {

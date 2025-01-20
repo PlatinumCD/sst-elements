@@ -588,7 +588,8 @@ VANADIS_COMPONENT::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_s
                     if ( 0 == resource_check ) {
                         int allocate_fu = 1;
 
-                        if( (ins_type == INST_LOAD || ins_type == INST_STORE || ins_type == INST_FENCE) ) {
+                        if( (ins_type == INST_LOAD || ins_type == INST_STORE || ins_type == INST_FENCE || 
+                                    ins_type == INST_ROCC0 || ins_type == INST_ROCC1 || ins_type == INST_ROCC2 || ins_type == INST_ROCC3) ) {
                             if(unallocated_memory_op_seen) {
                                 // the instruction should not be allocated because memory operations
                                 // must be issued to the LSQ in order to maintain memory ordering

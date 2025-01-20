@@ -88,12 +88,15 @@
 #define VANADIS_SYSCALL_RISCV64_SET_ROBUST_LIST 99
 #define VANADIS_SYSCALL_RISCV64_GET_RLIST 100
 #define VANADIS_SYSCALL_RISCV64_CLOCK_GETTIME 113
+#define VANADIS_SYSCALL_RISCV64_SCHED_SETAFFINITY 122 
 #define VANADIS_SYSCALL_RISCV64_SCHED_GETAFFINITY 123 
+#define VANADIS_SYSCALL_RISCV64_SCHED_YIELD 124 
 #define VANADIS_SYSCALL_RISCV64_KILL 129
 #define VANADIS_SYSCALL_RISCV64_RT_SIGACTION 134
 #define VANADIS_SYSCALL_RISCV64_RT_SIGPROCMASK 135
 #define VANADIS_SYSCALL_RISCV64_GETPGID 155
 #define VANADIS_SYSCALL_RISCV64_UNAME 160
+#define VANADIS_SYSCALL_RISCV64_GETCPU 168 
 #define VANADIS_SYSCALL_RISCV64_GETPID 172 
 #define VANADIS_SYSCALL_RISCV64_GETPPID 173
 #define VANADIS_SYSCALL_RISCV64_GETTID 178 
@@ -319,7 +322,7 @@ public:
     void recvSyscallResp( VanadisSyscallResponse* os_resp ) {
         output->verbose(CALL_INFO, 8, 0, "return-code: %" PRId64 " (success: %3s)\n",
                             os_resp->getReturnCode(), os_resp->isSuccessful() ? "yes" : "no");
-        output->verbose(CALL_INFO, 9, 0, "issuing call-backs to clear syscall ROB stops...\n");
+        output->verbose(CALL_INFO, 8, 0, "issuing call-backs to clear syscall ROB stops...\n");
 
         // Set up the return code (according to ABI, this goes in r10)
         const uint16_t rc_reg = isaTable->getIntPhysReg( VANADIS_SYSCALL_RISCV_RET_REG );

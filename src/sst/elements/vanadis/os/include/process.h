@@ -21,6 +21,8 @@
 //#include <iostream>
 //#include <fstream>
 
+#include <cstdint>
+
 #include "sst/elements/mmu/mmu.h"
 
 #include "os/include/hwThreadID.h"
@@ -57,6 +59,7 @@ class ProcessInfo {
         m_pageShift = obj.m_pageShift;
         m_ppid = obj.m_pid;
         m_pgid = obj.m_pgid;
+        m_coreCount = obj.m_coreCount;
        
         m_futex = new Futex;
         m_threadGrp = new ThreadGrp();
@@ -69,11 +72,12 @@ class ProcessInfo {
         openFileWithFd( "stderr-" + std::to_string(m_pid), O_CREAT | O_RDWR | O_TRUNC, S_IRUSR | S_IWUSR, 2 );
 
         m_fileTable->update( obj.m_fileTable );
+        cpus_mask.resize((m_coreCount + 7) / 8, 0xFF); 
     }
 
-    ProcessInfo( MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo, int debug_level, unsigned pageSize, Params& params )
+    ProcessInfo( MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo, int debug_level, unsigned pageSize, uint64_t coreCount, Params& params )
         : m_mmu(mmu), m_physMemMgr(physMemMgr), m_pid(pid), m_ppid(0), m_pgid(pid), m_tid(pid), m_uid(8000), m_gid(1000),
-          m_elfInfo(elfInfo), m_pageSize(pageSize), m_params(params), m_tidAddress(0)
+          m_elfInfo(elfInfo), m_pageSize(pageSize), m_coreCount(coreCount), m_params(params), m_tidAddress(0)
     {
         uint64_t initial_brk = 0;
         char buffer[100];
@@ -87,6 +91,7 @@ class ProcessInfo {
         m_threadGrp->add( this, gettid() );
         m_virtMemMap = new VirtMemMap;
         m_fileTable = new FileDescriptorTable( 1024 ); 
+        cpus_mask.resize((m_coreCount + 7) / 8, 0xFF); 
 
         for ( size_t i = 0; i < m_elfInfo->countProgramHeaders(); ++i ) {
 
@@ -129,8 +134,8 @@ class ProcessInfo {
     }
 
     ProcessInfo( SST::Output* output, std::string checkpointDir,
-        MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo, int debug_level, unsigned pageSize )
-        : m_mmu(mmu), m_physMemMgr(physMemMgr), m_pid(pid), m_pgid(pid), m_tid(pid), m_elfInfo(elfInfo), m_pageSize(pageSize)
+        MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo, int debug_level, unsigned pageSize , uint64_t coreCount)
+        : m_mmu(mmu), m_physMemMgr(physMemMgr), m_pid(pid), m_pgid(pid), m_tid(pid), m_elfInfo(elfInfo), m_pageSize(pageSize), m_coreCount(coreCount)
     {
         std::stringstream filename;
         filename << checkpointDir << "/process-"  << getpid();
@@ -182,6 +187,8 @@ class ProcessInfo {
         
         m_threadGrp = new ThreadGrp;
         m_futex = new Futex;
+
+        cpus_mask.resize((m_coreCount + 7) / 8, 0xFF); 
         
         size_t size;
         assert( 1 == fscanf(fp,"m_params.size() %zu\n",&size) );
@@ -205,9 +212,9 @@ class ProcessInfo {
             output->verbose(CALL_INFO, 0, VANADIS_DBG_CHECKPOINT,"%s %s\n",key.c_str(),value.c_str());
             m_params.insert(key.substr(pos1).c_str(),value.substr(pos2).c_str());
         }
-#if 0
+    #if 0
         m_params.print_all_params( std::cout );
-#endif
+    #endif
     }
 
     ~ProcessInfo() {
@@ -249,7 +256,7 @@ class ProcessInfo {
         m_virtMemMap->checkpoint(fp);
         m_fileTable->checkpoint(fp);
 
-#if 0
+        #if 0
         fprintf(fp,"#ThreadGrp start\n");
 
         auto tmp = m_threadGrp->getThreadList(); 
@@ -259,7 +266,7 @@ class ProcessInfo {
             fprintf(fp,"tid: %d\n", x.first );
         }
         fprintf(fp,"#ThreadGrp end\n");
-#endif
+        #endif
 
         assert( m_futex->isEmpty() );
         
@@ -331,22 +338,26 @@ class ProcessInfo {
     }
 
     void mapVirtToPage( unsigned vpn, OS::Page* page ) {
-        m_dbg.verbose(CALL_INFO,1,0,"vpn=%d ppn=%d virtAddr=%#" PRIx64 "\n", vpn, page->getPPN(), (uint64_t) vpn << m_pageShift );
+        m_dbg.verbose(CALL_INFO,1,VANADIS_OS_DBG_VIRT2PHYS,"vpn=%d ppn=%d virtAddr=%#" PRIx64 "\n", vpn, page->getPPN(), (uint64_t) vpn << m_pageShift );
         auto region = findMemRegion( vpn << m_pageShift );
         assert( region );
         region->mapVirtToPhys( vpn, page );
     }
 
     uint64_t virtToPhys( uint64_t virtAddr) {
+
         uint32_t vpn = virtAddr >> m_pageShift;
 
         auto region = findMemRegion(virtAddr);
+
         if ( nullptr == region ) {
             m_dbg.fatal(CALL_INFO, -1, "Error: can't find memory region for addr %#" PRIx64 "\n", virtAddr);
         }
-        
+
         uint32_t ppn = m_mmu->virtToPhys( getpid(), vpn );
+
         if ( -1 == ppn ) {
+
             return -1;
         }
         uint64_t physAddr = ppn << m_pageShift | virtAddr & ( (1<<m_pageShift) - 1 );
@@ -441,6 +452,17 @@ class ProcessInfo {
         return m_fileTable->getPath( handle ); 
     }
 
+    void setAffinity(const std::vector<uint8_t>& new_mask) {
+        cpus_mask = new_mask;
+    }
+
+    bool isCoreAllowed(unsigned core) const {
+        unsigned byte_index = core / 8;
+        unsigned bit_pos    = core % 8;
+        if (byte_index >= cpus_mask.size()) return false;
+        return (cpus_mask[byte_index] & (1 << bit_pos)) != 0;
+    }
+
     Params& getParams() { return m_params; }
     uint64_t getEntryPoint() { return m_elfInfo->getEntryPoint(); }
     VanadisELFInfo* getElfInfo() { return m_elfInfo; }
@@ -478,6 +500,9 @@ class ProcessInfo {
     unsigned m_hwThread;
     uint64_t m_tidAddress;
 
+    std::vector<uint8_t> cpus_mask;
+    uint64_t m_coreCount;
+
     MMU_Lib::MMU*           m_mmu;
     PhysMemManager*         m_physMemMgr;
     VanadisELFInfo*         m_elfInfo;
@@ -486,6 +511,7 @@ class ProcessInfo {
     FileDescriptorTable*    m_fileTable;
     ThreadGrp*              m_threadGrp;
     Futex*                  m_futex;
+    SST::Output* m_output;
 };
 
 }
