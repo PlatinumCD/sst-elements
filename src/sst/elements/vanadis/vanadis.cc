@@ -21,6 +21,8 @@
 #include "decoder/vriscv64decoder.h"
 
 #include "os/resp/vosexitresp.h"
+#include "os/resp/vosgetthreadstateresp.h"
+#include "os/resp/voscheckpointresp.h"
 
 #include <cstdio>
 #include <sst/core/output.h>

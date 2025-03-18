@@ -30,9 +30,9 @@
 #include "rocc/vroccinterface.h"
 #include "rocc/vbasicrocc.h"
 
-#include "os/vgetthreadstate.h"
-#include "os/vdumpregsreq.h"
-#include "os/vcheckpointreq.h"
+#include "os/req/vosgetthreadstatereq.h"
+#include "os/req/vosdumpregsreq.h"
+#include "os/req/voscheckpointreq.h"
 
 #include <array>
 #include <limits>

@@ -42,26 +42,6 @@ private:
     ImplementSerializable(SST::Vanadis::VanadisCheckpointReq);
 };
 
-class VanadisCheckpointResp : public SST::Event {
-public:
-    VanadisCheckpointResp() : SST::Event(), coreId(-1) { }
-
-    VanadisCheckpointResp( int coreId ) : 
-        SST::Event(), coreId(coreId) {}
-
-    ~VanadisCheckpointResp() {}
-
-private:
-    void serialize_order(SST::Core::Serialization::serializer& ser) override {
-        Event::serialize_order(ser);
-        ser& coreId;
-    }
-
-    ImplementSerializable(SST::Vanadis::VanadisCheckpointResp);
-
-    int coreId;
-};
-
 } // namespace Vanadis
 } // namespace SST
 

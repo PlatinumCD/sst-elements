@@ -22,7 +22,8 @@
 #include "util/vlinesplit.h"
 #include "os/voscallev.h"
 #include "os/include/process.h"
-#include "os/vgetthreadstate.h"
+#include "os/req/vosgetthreadstatereq.h"
+#include "os/resp/vosgetthreadstateresp.h"
 #include "os/resp/voscallresp.h"
 #include "os/vosDbgFlags.h"
 
@@ -213,7 +214,7 @@ private:
     VanadisSyscall( VanadisNodeOSComponent* os, SST::Link* coreLink, OS::ProcessInfo* process, VanadisSyscallEvent* event, std::string name );
     virtual ~VanadisSyscall();
 
-    virtual void handleEvent( VanadisCoreEvent* ) { assert(0); } 
+    virtual void handleEvent( VanadisCoreEventResp* ) { assert(0); } 
     virtual bool isComplete() { return m_complete && m_pendingMem.empty(); }
     bool handleMemRespBase( StandardMem::Request* req );
     int getCoreId()         { return m_process->getCore(); }

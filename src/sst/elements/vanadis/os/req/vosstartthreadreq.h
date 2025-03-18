@@ -35,8 +35,10 @@ public:
     int64_t getStackAddr() { return stackAddr; }
     int64_t getArgAddr() { return argAddr; }
     int64_t getTlsAddr() { return tlsAddr; }
+    int64_t getTid() { return tid; }
     void setIntRegs( std::vector<uint64_t>& regs ) { intRegs = regs; } 
     void setFpRegs( std::vector<uint64_t>& regs ) { fpRegs = regs; } 
+    void setTid( int64_t t ) { tid = t; }
     std::vector<uint64_t>& getIntRegs() { return intRegs; }
     std::vector<uint64_t>& getFpRegs() { return fpRegs; }
 
@@ -49,6 +51,7 @@ private:
         ser& stackAddr;
         ser& argAddr;
         ser& tlsAddr;
+        ser& tid;
         ser& intRegs;
         ser& fpRegs;
     }
@@ -56,6 +59,7 @@ private:
     ImplementSerializable(SST::Vanadis::_VanadisStartThreadBaseReq);
 
     int     thread;
+    int64_t tid;
     int64_t instPtr;
     int64_t stackAddr;
     int64_t argAddr;

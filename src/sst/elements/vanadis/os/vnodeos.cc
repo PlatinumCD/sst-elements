@@ -21,15 +21,18 @@
 
 #include "vanadisDbgFlags.h"
 
-#include "os/vcheckpointreq.h"
-#include "os/vgetthreadstate.h"
+#include "os/req/voscheckpointreq.h"
+#include "os/req/vosgetthreadstatereq.h"
+#include "os/req/vosdumpregsreq.h"
+#include "os/req/vosstartthreadreq.h"
+
+#include "os/resp/voscheckpointresp.h"
 #include "os/resp/voscallresp.h"
 #include "os/resp/vosexitresp.h"
+#include "os/resp/voscoreresp.h"
 #include "os/vnodeos.h"
 #include "os/voscallev.h"
 #include "os/velfloader.h"
-#include "os/vstartthreadreq.h"
-#include "os/vdumpregsreq.h"
 #include "sst/elements/mmu/utils.h"
 
 using namespace SST::Vanadis;
@@ -592,7 +595,7 @@ VanadisNodeOSComponent::handleIncomingSyscall(SST::Event* ev) {
     VanadisSyscallEvent* sys_ev = dynamic_cast<VanadisSyscallEvent*>(ev);
 
     if (nullptr == sys_ev) {
-        VanadisCoreEvent* event = dynamic_cast<VanadisCoreEvent*>(ev);
+        VanadisCoreEventResp* event = dynamic_cast<VanadisCoreEventResp*>(ev);
 
         if ( nullptr != event ) { 
             auto syscall = getSyscall( event->getCore(), event->getThread() );

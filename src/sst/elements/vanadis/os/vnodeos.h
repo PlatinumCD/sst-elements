@@ -25,10 +25,12 @@
 #include "os/vosDbgFlags.h"
 #include "os/include/hwThreadID.h"
 #include "os/voscallev.h"
-#include "os/vstartthreadreq.h"
 #include "os/vappruntimememory.h"
 #include "os/vphysmemmanager.h"
 #include "os/include/process.h"
+
+#include "os/req/vosstartthreadreq.h"
+
 #include "os/syscall/fork.h"
 #include "os/syscall/clone.h"
 #include "os/syscall/exit.h"

@@ -18,7 +18,7 @@
 #include "os/syscall/exit.h"
 #include "os/syscall/futex.h"
 #include "os/vnodeos.h"
-#include "os/vgetthreadstate.h"
+#include "os/req/vosgetthreadstatereq.h"
 #include "os/resp/vosexitresp.h"
 
 using namespace SST::Vanadis;

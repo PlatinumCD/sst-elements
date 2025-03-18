@@ -18,7 +18,7 @@
 
 #include "os/syscall/syscall.h"
 #include "os/callev/voscallcheckpoint.h"
-#include "os/vcheckpointreq.h"
+#include "os/req/voscheckpointreq.h"
 
 namespace SST {
 namespace Vanadis {

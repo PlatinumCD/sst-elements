@@ -18,6 +18,7 @@
 
 #include "os/syscall/syscall.h"
 #include "os/callev/voscallclone.h"
+#include "os/resp/voscoreresp.h"
 
 namespace SST {
 namespace Vanadis {
@@ -28,7 +29,7 @@ public:
     ~VanadisCloneSyscall() {
         delete m_threadID;
     }
-    void handleEvent( VanadisCoreEvent* ev );
+    void handleEvent( VanadisCoreEventResp* ev );
 
  private:  
 

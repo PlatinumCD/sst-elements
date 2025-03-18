@@ -17,7 +17,8 @@
 
 #include "os/syscall/clone.h"
 #include "os/vnodeos.h"
-#include "os/vgetthreadstate.h"
+#include "os/req/vosgetthreadstatereq.h"
+#include "os/resp/vosgetthreadstateresp.h"
 
 using namespace SST::Vanadis;
 
@@ -210,7 +211,7 @@ void VanadisCloneSyscall::finish(VanadisSyscallCloneEvent* event)
 }
 
 // we have the instPtr and registers from the parent core/hwThread,
-void VanadisCloneSyscall::handleEvent( VanadisCoreEvent* ev )
+void VanadisCloneSyscall::handleEvent( VanadisCoreEventResp* ev )
 {
     auto event = getEvent<VanadisSyscallCloneEvent*>();
     auto resp = dynamic_cast<VanadisGetThreadStateResp*>( ev );

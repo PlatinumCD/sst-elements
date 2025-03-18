@@ -17,6 +17,7 @@
 
 #include "os/syscall/fork.h"
 #include "os/vnodeos.h"
+#include "os/resp/vosgetthreadstateresp.h"
 
 using namespace SST::Vanadis;
 
@@ -61,7 +62,7 @@ VanadisForkSyscall::VanadisForkSyscall( VanadisNodeOSComponent* os, SST::Link* c
     sendNeedThreadState();
 }
 
-void VanadisForkSyscall::handleEvent( VanadisCoreEvent* ev )
+void VanadisForkSyscall::handleEvent( VanadisCoreEventResp* ev )
 {
     auto resp = dynamic_cast<VanadisGetThreadStateResp*>( ev );
     assert(resp);

@@ -22,7 +22,7 @@
 
 #include "os/callev/voscallall.h"
 #include "os/resp/voscallresp.h"
-#include "os/vstartthreadreq.h"
+#include "os/req/vosstartthreadreq.h"
 #include "os/vcpuos2.h"
 #include "os/voscallev.h"
 #include <functional>

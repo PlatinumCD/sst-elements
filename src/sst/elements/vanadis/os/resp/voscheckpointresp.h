@@ -13,28 +13,32 @@
 // information, see the LICENSE file in the top level directory of the
 // distribution.
 
-#ifndef _H_VANADIS_OS_SYSCALL_FORK
-#define _H_VANADIS_OS_SYSCALL_FORK
+#ifndef _H_VANADIS_CHECKPOINT_RESP
+#define _H_VANADIS_CHECKPOINT_RESP
 
-#include "os/syscall/syscall.h"
-#include "os/callev/voscallfork.h"
-#include "os/include/hwThreadID.h"
-#include "os/resp/voscoreresp.h"
+#include <sst/core/event.h>
 
 namespace SST {
 namespace Vanadis {
 
-class VanadisForkSyscall : public VanadisSyscall {
+class VanadisCheckpointResp : public SST::Event {
 public:
-    VanadisForkSyscall( VanadisNodeOSComponent* os, SST::Link* coreLink, OS::ProcessInfo* process, VanadisSyscallForkEvent* event );
-    ~VanadisForkSyscall() { 
-        delete m_threadID;
-    }
-    void handleEvent( VanadisCoreEventResp* ev );
+    VanadisCheckpointResp() : SST::Event(), coreId(-1) { }
 
- private:  
-    OS::ProcessInfo* m_child;  
-    OS::HwThreadID* m_threadID;
+    VanadisCheckpointResp( int coreId ) : 
+        SST::Event(), coreId(coreId) {}
+
+    ~VanadisCheckpointResp() {}
+
+private:
+    void serialize_order(SST::Core::Serialization::serializer& ser) override {
+        Event::serialize_order(ser);
+        ser& coreId;
+    }
+
+    ImplementSerializable(SST::Vanadis::VanadisCheckpointResp);
+
+    int coreId;
 };
 
 } // namespace Vanadis

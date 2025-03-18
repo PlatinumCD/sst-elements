@@ -30,7 +30,7 @@
 #include "inst/regfile.h"
 #include "inst/vsyscall.h"
 #include "os/callev/voscallall.h"
-#include "os/vstartthreadreq.h"
+#include "os/req/vosstartthreadreq.h"
 #include "os/resp/voscallresp.h"
 
 namespace SST {
