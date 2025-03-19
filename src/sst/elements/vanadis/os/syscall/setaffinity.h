@@ -25,37 +25,31 @@ namespace Vanadis {
 class VanadisSetaffinitySyscall : public VanadisSyscall {
 public:
     VanadisSetaffinitySyscall(
-        VanadisNodeOSComponent* os,
-        SST::Link* coreLink,
-        OS::ProcessInfo* process,
-        VanadisSyscallSetaffinityEvent* event )
-    : VanadisSyscall(os, coreLink, process, event, "setaffinity")
+            VanadisNodeOSComponent* os,
+            SST::Link* coreLink,
+            OS::ProcessInfo* process,
+            VanadisSyscallSetaffinityEvent* event ) :
+        VanadisSyscall(os, coreLink, process, event, "setaffinity")
     {
-        m_output->verbose(CALL_INFO, 2, VANADIS_OS_DBG_SYSCALL, "[syscall-setaffinity] pid=%" PRIu64 " cpusetsize=%" PRIu64 " maskAddr=%#" PRIx64 "\n",
-                                      event->getPid(), event->getCpusetsize(), event->getMaskAddr());
-
-        // Load the CPU mask from memory
-         // Validate cpusetsize
-        if (event->getCpusetsize() < sizeof(uint64_t)) {
-            setReturnFail(LINUX_EINVAL);
-            return;
-        }
+        m_output->verbose(
+            CALL_INFO, 2, VANADIS_OS_DBG_SYSCALL, 
+            "[syscall-setaffinity] pid=%" PRIu64 " cpusetsize=%" PRIu64 " maskAddr=%#" PRIx64 "\n",
+            event->getPid(), event->getCpusetsize(), event->getMaskAddr());
 
         // Load the CPU mask from memory
         m_mask.resize(event->getCpusetsize(), 0);
         readMemory(event->getMaskAddr(), m_mask);
-
-        process->setAffinity(m_mask);
-        os->updateProcessAffinity(process->getpid());
-        setReturnSuccess(0);
     }
 
     void memReqIsDone(bool success) override {
-        // If readMemory failed, return an error
-        if (!success) {
-            setReturnFail(LINUX_EBADF);
-        } else {
-            setReturnSuccess(0);
+        m_process->setAffinity(m_mask);
+        setReturnSuccess(0);
+
+        uint64_t core = m_process->getCore();
+        uint64_t hwThread = m_process->getHwThread();
+        uint64_t logicalCore = core * m_os->getNumHwThreads() + hwThread;
+        if (!m_process->getLogicalCoreAffinity(logicalCore)) {
+            m_os->contextSave(m_process->gettid());
         }
     }
 

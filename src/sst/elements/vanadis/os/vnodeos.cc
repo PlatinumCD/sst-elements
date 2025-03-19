@@ -24,12 +24,16 @@
 #include "os/req/voscheckpointreq.h"
 #include "os/req/vosgetthreadstatereq.h"
 #include "os/req/vosdumpregsreq.h"
+#include "os/req/voscontextreq.h"
+#include "os/req/vossetthreadidlereq.h"
 #include "os/req/vosstartthreadreq.h"
 
 #include "os/resp/voscheckpointresp.h"
 #include "os/resp/voscallresp.h"
 #include "os/resp/vosexitresp.h"
 #include "os/resp/voscoreresp.h"
+#include "os/resp/voscontextresp.h"
+
 #include "os/vnodeos.h"
 #include "os/voscallev.h"
 #include "os/velfloader.h"
@@ -65,15 +69,17 @@ VanadisNodeOSComponent::VanadisNodeOSComponent(SST::ComponentId_t id, SST::Param
     } else {
         m_checkpoint = NO_CHECKPOINT;
     }
+
     m_coreCount = params.find<uint64_t>("cores", 0);
-    const uint32_t hardwareThreadCount = params.find<uint32_t>("hardwareThreadCount", 1);
+    m_hardwareThreadCount = params.find<uint32_t>("hardwareThreadCount", 1);
+    m_numLogicalCores = m_coreCount * m_hardwareThreadCount;
     
     if (m_coreCount == 0) {
         output->fatal(CALL_INFO, -1, "Missing parameter (%s): 'cores' must be specified and at least 1.\n", getName().c_str());
     }
 
     for ( int i = 0; i < m_coreCount; i++ ) {
-        for ( int j = 0; j < hardwareThreadCount; j++ ) {
+        for ( int j = 0; j < m_hardwareThreadCount; j++ ) {
             m_availHwThreads.push( new OS::HwThreadID( i,j ) );
         } 
     } 
@@ -117,7 +123,11 @@ VanadisNodeOSComponent::VanadisNodeOSComponent(SST::ComponentId_t id, SST::Param
 
     m_nodeNum = params.find<int>("node_id", -1);
 
-    m_coreInfoMap.resize( m_coreCount, hardwareThreadCount ); 
+    m_coreInfoMap.clear();
+    m_coreInfoMap.reserve(m_coreCount);
+    for (unsigned i = 0; i < m_coreCount; ++i) {
+        m_coreInfoMap.emplace_back(m_hardwareThreadCount);
+    }
 
     int numProcess = 0;
 
@@ -144,7 +154,9 @@ if ( CHECKPOINT_LOAD != m_checkpoint ) {
             }
 
             unsigned tid = getNewTid();
-            m_threadMap[tid] = new OS::ProcessInfo( m_mmu, m_physMemMgr, m_nodeNum, tid, m_elfMap[exe], m_processDebugLevel, m_pageSize, m_coreCount, tmp );
+            m_threadMap[tid] = new OS::ProcessInfo( m_mmu, m_physMemMgr, m_nodeNum, tid, m_elfMap[exe], 
+                    m_processDebugLevel, m_pageSize, m_numLogicalCores, tmp );
+
             ++numProcess;
         } else {
           break;
@@ -172,7 +184,7 @@ if ( CHECKPOINT_LOAD != m_checkpoint ) {
                                                          getTimeConverter("1ps"),
                                                          new StandardMem::Handler<SST::Vanadis::VanadisNodeOSComponent>(
                                                              this, &VanadisNodeOSComponent::handleIncomingMemory));
-    output->verbose(CALL_INFO, 1, VANADIS_OS_DBG_INIT, "Configuring for %" PRIu64 " core links...\n", m_coreCount);
+    output->verbose(CALL_INFO, 1, VANADIS_OS_DBG_INIT, "Configuring for %" PRIu32 " core links...\n", m_coreCount);
     core_links.reserve(m_coreCount);
 
     char* port_name_buffer = new char[128];
@@ -184,7 +196,7 @@ if ( CHECKPOINT_LOAD != m_checkpoint ) {
 
         SST::Link* core_link = configureLink(
             port_name_buffer, "0ns",
-            new Event::Handler<VanadisNodeOSComponent>(this, &VanadisNodeOSComponent::handleIncomingSyscall));
+            new Event::Handler<VanadisNodeOSComponent>(this, &VanadisNodeOSComponent::recvHWEvent));
 
         if (nullptr == core_link) {
             output->fatal(CALL_INFO, -1, "Error: unable to configure link: %s\n", port_name_buffer);
@@ -362,7 +374,9 @@ int VanadisNodeOSComponent::checkpointLoad( std::string dir )
         assert( 3 == fscanf(fp,"thread: %d, pid: %d %s\n",&tid,&pid,str ) );
         output->verbose(CALL_INFO, 0, VANADIS_DBG_CHECKPOINT,"thread: %d, pid: %d %s\n",tid,pid, str);
         if ( tid == pid ) { 
-            m_threadMap[tid] = new OS::ProcessInfo( output, dir, m_mmu, m_physMemMgr, m_nodeNum, tid, m_elfMap[str], m_processDebugLevel, m_pageSize, size);
+            m_threadMap[tid] = new OS::ProcessInfo( output, dir, m_mmu, m_physMemMgr, m_nodeNum, tid, m_elfMap[str],
+                    m_processDebugLevel, m_pageSize, m_numLogicalCores);
+
             processMap[pid] = m_threadMap[tid];
         } else {
             m_threadMap[tid] = new OS::ProcessInfo;
@@ -591,51 +605,66 @@ void VanadisNodeOSComponent::writeMem( OS::ProcessInfo* process, uint64_t virtAd
 }
 
 void
-VanadisNodeOSComponent::handleIncomingSyscall(SST::Event* ev) {
+VanadisNodeOSComponent::recvHWEvent(SST::Event* ev) {
     VanadisSyscallEvent* sys_ev = dynamic_cast<VanadisSyscallEvent*>(ev);
 
     if (nullptr == sys_ev) {
-        VanadisCoreEventResp* event = dynamic_cast<VanadisCoreEventResp*>(ev);
 
-        if ( nullptr != event ) { 
-            auto syscall = getSyscall( event->getCore(), event->getThread() );
-            syscall->handleEvent( event );
-            processSyscallPost( syscall );
+        VanadisContextSaveResp* resp = dynamic_cast<VanadisContextSaveResp*>(ev);
+        if ( nullptr != resp ) {
+            // handle Save
+            handleContextSaveResp( resp );
+            delete ev;
+
         } else {
-
-            VanadisCheckpointResp* resp = dynamic_cast< VanadisCheckpointResp*>(ev);
+            VanadisContextLoadResp* resp = dynamic_cast<VanadisContextLoadResp*>(ev);
             if ( nullptr != resp ) {
-                output->verbose(CALL_INFO, 0, VANADIS_DBG_CHECKPOINT,"checkpoint \n");
-             //   primaryComponentOKToEndSim();
+                // handle load
 
-                m_flushPages.push_back( 0x2bc0 );
-                m_flushPages.push_back( 0x163c0 );
-                m_flushPages.push_back( 0x16400 );
-                m_flushPages.push_back( 0x90c0 );
-                m_flushPages.push_back( 0x2c80 );
-                m_flushPages.push_back( 0x2c00 );
-                m_flushPages.push_back( 0x1b00 );
-                
-                m_flushPages.push_back( 0x1b000 );
-                m_flushPages.push_back( 0x2b80 );
-                m_flushPages.push_back( 0x2980 );
-                m_flushPages.push_back( 0x2a00 );
-                m_flushPages.push_back( 0x2940 );
-                m_flushPages.push_back( 0x2900 );
-                m_flushPages.push_back( 0x3f80 );
-                m_flushPages.push_back( 0x2800 );
-                m_flushPages.push_back( 0x29c0 );
-                m_flushPages.push_back( 0x28c0 );
-
-                for ( auto & x : m_flushPages ) {
-                    printf("%#" PRIx64 "\n",x);
-                    StandardMem::Request* req = new SST::Interfaces::StandardMem::FlushAddr( x, 64, true, 5, 0 );
-                    mem_if->send(req);
-                }
             } else {
-                output->fatal(CALL_INFO, -1,
-                      "Error - received an event in the OS, but cannot cast it to "
-                      "a system-call event.\n");
+                VanadisCoreEventResp* event = dynamic_cast<VanadisCoreEventResp*>(ev);
+                if ( nullptr != event ) { 
+                    auto syscall = getSyscall( event->getCore(), event->getThread() );
+                    syscall->handleEvent( event );
+                    processSyscallPost( syscall );
+
+                } else {
+                    VanadisCheckpointResp* resp = dynamic_cast< VanadisCheckpointResp*>(ev);
+                    if ( nullptr != resp ) {
+
+                        output->verbose(CALL_INFO, 0, VANADIS_DBG_CHECKPOINT,"checkpoint \n");
+                     //   primaryComponentOKToEndSim();
+
+                        m_flushPages.push_back( 0x2bc0 );
+                        m_flushPages.push_back( 0x163c0 );
+                        m_flushPages.push_back( 0x16400 );
+                        m_flushPages.push_back( 0x90c0 );
+                        m_flushPages.push_back( 0x2c80 );
+                        m_flushPages.push_back( 0x2c00 );
+                        m_flushPages.push_back( 0x1b00 );
+                        
+                        m_flushPages.push_back( 0x1b000 );
+                        m_flushPages.push_back( 0x2b80 );
+                        m_flushPages.push_back( 0x2980 );
+                        m_flushPages.push_back( 0x2a00 );
+                        m_flushPages.push_back( 0x2940 );
+                        m_flushPages.push_back( 0x2900 );
+                        m_flushPages.push_back( 0x3f80 );
+                        m_flushPages.push_back( 0x2800 );
+                        m_flushPages.push_back( 0x29c0 );
+                        m_flushPages.push_back( 0x28c0 );
+
+                        for ( auto & x : m_flushPages ) {
+                            printf("%#" PRIx64 "\n",x);
+                            StandardMem::Request* req = new SST::Interfaces::StandardMem::FlushAddr( x, 64, true, 5, 0 );
+                            mem_if->send(req);
+                        }
+                    } else {
+                        output->fatal(CALL_INFO, -1,
+                              "Error - received an event in the OS, but cannot cast it to "
+                              "a system-call event.\n");
+                    }
+                }
             }
         }
     } else {
@@ -964,63 +993,151 @@ void VanadisNodeOSComponent::PageMemWriteReq::sendReq() {
 }
 
 
-void VanadisNodeOSComponent::updateProcessAffinity(unsigned pid) {
-    // Find the process
-    auto it = m_threadMap.find(pid);
-    if (it == m_threadMap.end()) {
-        output->verbose(CALL_INFO, 2, VANADIS_OS_DBG_SYSCALL,
-                        "[updateProcessAffinity] PID %u not found.\n", pid);
-        return; // No such process
+void VanadisNodeOSComponent::contextSave( uint32_t tid ) {
+    OS::ProcessInfo* process = m_threadMap[tid];
+    uint32_t coreId = process->getCore();
+    uint32_t hwThreadId = process->getHwThread();
+
+    uint32_t currLogicalCore = coreId * m_hardwareThreadCount + hwThreadId;
+    if ( process->getLogicalCoreAffinity(currLogicalCore) ) {
+        return;
     }
-    OS::ProcessInfo* process = it->second;
 
-    // Get the current core the process is running on
-    unsigned currentCore = process->getCore();
+    VanadisContextSaveReq* req = new VanadisContextSaveReq(coreId, hwThreadId, tid);
+    core_links.at(coreId)->send(req);
+}
 
-    // Check if the current core is still allowed
-    if (!process->isCoreAllowed(currentCore)) {
 
-        // Find an allowed core
-        bool migrated = false;
-        for (unsigned newCore = 0; newCore < m_coreCount; ++newCore) {
-            if (process->isCoreAllowed(newCore)) {
-                migrateProcessToCore(process, newCore);
-                migrated = true;
-                break;
+uint32_t VanadisNodeOSComponent::determineBestLogicalCore( OS::ProcessInfo* process ) {
+    uint32_t bestLogicalCore = -1;
+    uint32_t minTasks = std::numeric_limits<uint32_t>::max();  // Initialize to max value
+
+    for (uint32_t i = 0; i < m_numLogicalCores; ++i) {
+        if (process->getLogicalCoreAffinity(i)) {
+            uint32_t coreId = i / m_hardwareThreadCount;
+            uint32_t hwThreadId = i % m_hardwareThreadCount;
+            uint32_t queueSize = 0;
+
+            if ( m_coreInfoMap.at(coreId).getProcess( hwThreadId) != nullptr ) {
+                queueSize++;
+            }
+
+            queueSize += m_coreInfoMap.at(coreId).getReadyQueueSize(hwThreadId);
+
+            if (queueSize < minTasks) {
+                bestLogicalCore = i;
+                minTasks = queueSize;
             }
         }
+    }
+    return bestLogicalCore;
+}
 
-        if (!migrated) {
-            // No allowed core found; the process effectively can't run
-            output->verbose(CALL_INFO, 1, VANADIS_OS_DBG_SYSCALL,
-                            "[updateProcessAffinity] Process %u has no allowed cores.\n", pid);
-            // Handle as desired (e.g., suspend the process, or keep it blocked)
+void VanadisNodeOSComponent::loadNextContext( uint32_t coreId, uint32_t hwThreadId ) {
+
+    // Pop the next context
+    OS::TaskContext *nextCtx = m_coreInfoMap.at(coreId).popContext( hwThreadId );
+
+    if (m_mmu) {
+        m_mmu->flushTlb( coreId, hwThreadId);
+        m_mmu->setCoreToPageTable( coreId, hwThreadId, nextCtx->getProcess()->gettid());
+    }
+
+    // Set core's current to process to new context's process
+    m_coreInfoMap.at(coreId).setProcess( hwThreadId, nextCtx->getProcess() );
+
+    // Make load request from context
+    VanadisContextLoadReq* req = new VanadisContextLoadReq(
+        nextCtx->getCore(),               // Core
+        nextCtx->getHwThread(),           // Hw Thread
+        nextCtx->getTid(),                // Task id
+        nextCtx->getIP(),                 // instruction pointer
+        nextCtx->getTLS()                 // TLS pointer
+    );
+
+    req->intRegs = nextCtx->getIntRegs(); // Int Registers
+    req->fpRegs  = nextCtx->getFpRegs();  // Float Registers
+
+    // Load next context
+    core_links[nextCtx->getCore()]->send(req);
+    return;
+}
+
+ void VanadisNodeOSComponent::handleContextSaveResp( VanadisContextSaveResp* resp ) {
+
+    // Save Context
+    uint32_t tid = resp->getTid();
+    OS::ProcessInfo* process = m_threadMap[tid];
+    OS::TaskContext* taskCtx = new OS::TaskContext(
+        tid,
+        process,
+        resp->getCore(),       // core ID
+        resp->getThread(),     // hardware thread ID
+        resp->getInstPtr(),    // instruction pointer
+        resp->getTlsPtr(),     // TLS pointer
+        resp->intRegs,         // integer registers vector
+        resp->fpRegs          // floating-point registers vector
+    );
+
+    // Context is saved
+    if ( process == nullptr ) {
+        output->fatal(CALL_INFO, -1, "Process is nullptr\n");
+        return;
+    }
+
+    // determine target ready queue
+    uint32_t bestLogicalCore = determineBestLogicalCore( process );
+    if ( bestLogicalCore == std::numeric_limits<uint32_t>::max() ) {
+        output->fatal(CALL_INFO, -1, "Failed to find best core\n");
+    }
+
+    uint32_t currCoreId     = process->getCore();
+    uint32_t currHwThreadId = process->getHwThread();
+    uint32_t bestCoreId     = bestLogicalCore / m_hardwareThreadCount;
+    uint32_t bestHwThreadId = bestLogicalCore % m_hardwareThreadCount;
+    size_t currQueueSize    = m_coreInfoMap.at(currCoreId).getReadyQueueSize( currHwThreadId );
+    size_t bestQueueSize = m_coreInfoMap.at(bestCoreId).getReadyQueueSize( bestHwThreadId );
+
+    // Update context details
+    taskCtx->setCore( bestCoreId );
+    taskCtx->setHwThread( bestHwThreadId );
+    process->setCore( bestCoreId );
+    process->setHwThread( bestHwThreadId );
+
+    // Same Core, Same Hart
+    if ( (bestCoreId == currCoreId) && (bestHwThreadId == currHwThreadId) ) {
+        if ( currQueueSize == 0 ) {
+            return;
+
+        } else {
+
+            // Set process of hwthread to nothing
+            m_coreInfoMap.at(currCoreId).setProcess( currHwThreadId, nullptr );
+
+            // Add context to queue
+            m_coreInfoMap.at(currCoreId).pushContext( currHwThreadId, taskCtx );
+            loadNextContext( currCoreId, currHwThreadId );
+            return;
         }
+    }
+
+    // Manage current core/hwthread
+    m_coreInfoMap.at(currCoreId).setProcess( currHwThreadId, nullptr );
+    if ( currQueueSize == 0 ) {
+        VanadisSetThreadIdleReq *req = new VanadisSetThreadIdleReq( currCoreId, currHwThreadId );
+        core_links.at(currCoreId)->send(req);
     } else {
-        // Current core is fine; no action needed
-        output->verbose(CALL_INFO, 2, VANADIS_OS_DBG_SYSCALL,
-                        "[updateProcessAffinity] PID %u remains on core %u.\n", pid, currentCore);
+        loadNextContext( currCoreId, currHwThreadId );
+    }
+
+    // Different Core/Hart
+    if ( (bestCoreId != currCoreId) || (bestHwThreadId != currHwThreadId) ) {
+        m_coreInfoMap.at(bestCoreId).pushContext( bestHwThreadId, taskCtx );
+
+        // Direct Start
+        if ( (bestQueueSize == 0) && (m_coreInfoMap.at(bestCoreId).getProcess( bestHwThreadId ) == nullptr) ) { 
+            loadNextContext( bestCoreId, bestHwThreadId ); 
+        }
     }
 }
 
-
-void VanadisNodeOSComponent::migrateProcessToCore(OS::ProcessInfo* process, unsigned newCore)
-{
-    unsigned oldCore   = process->getCore();
-    unsigned hwThread  = process->getHwThread();
-    unsigned pid       = process->getpid();
-
-    output->verbose(CALL_INFO, 2, VANADIS_OS_DBG_SYSCALL,
-        "[migrateProcessToCore] migrating PID %u from core %u to core %u\n",
-        pid, oldCore, newCore);
-
-    m_coreInfoMap[oldCore].setProcess(hwThread, nullptr);
-
-    OS::HwThreadID newID(newCore, hwThread);
-    process->setHwThread(newID);
-
-    m_coreInfoMap[newCore].setProcess(hwThread, process);
-
-    output->verbose(CALL_INFO, 2, VANADIS_OS_DBG_SYSCALL,
-        "[migrateProcessToCore] PID %u now on core %u\n", pid, newCore);
-}

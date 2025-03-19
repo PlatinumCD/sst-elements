@@ -40,13 +40,49 @@ class VanadisSyscall;
 
 namespace OS {
 
+class TaskContext {
+  public:
+    TaskContext(uint64_t tid, ProcessInfo* process, uint64_t core, uint64_t hwThread, 
+            uint64_t ip, uint64_t tls, std::vector<uint64_t> intRegs, std::vector<uint64_t> fpRegs ) : 
+        tid(tid), process(process), m_core(core), m_hwThread(hwThread), 
+        ip(ip), tls(tls), intRegs(intRegs), fpRegs(fpRegs) {}
+
+    void setCore( uint64_t core ) { m_core = core; }
+    void setHwThread( uint64_t hwThread ) { m_hwThread = hwThread; }
+
+    uint64_t getTid() const { return tid; }
+    ProcessInfo* getProcess() const { return process; }
+    uint64_t getCore() const      { return m_core;     }
+    uint64_t getHwThread() const  { return m_hwThread; }
+    uint64_t getIP()  const { return ip; }
+    uint64_t getTLS() const { return tls; }
+    const std::vector<uint64_t>& getIntRegs() const { return intRegs; }
+    const std::vector<uint64_t>& getFpRegs()  const { return fpRegs;  }
+
+    bool isFork;
+
+  private:
+    uint64_t tid;
+    ProcessInfo* process;
+
+    uint64_t m_core;
+    uint64_t m_hwThread;
+
+    uint64_t ip; 
+    uint64_t tls;
+
+    std::vector<uint64_t> intRegs;
+    std::vector<uint64_t> fpRegs;
+};
+
 class ProcessInfo {
   public:
 
     ProcessInfo( ) : m_pid(-1), m_fileTable(nullptr), m_virtMemMap(nullptr), m_tidAddress(0) { }
     
-    ProcessInfo( const ProcessInfo& obj, unsigned pid, unsigned debug_level = 0 ) : m_pid(pid), m_tid(pid), m_uid(8000), m_gid(1000), m_tidAddress(0) { 
-
+    ProcessInfo( const ProcessInfo& obj, unsigned pid, unsigned debug_level = 0 ) :
+        m_pid(pid), m_tid(pid), m_uid(8000), m_gid(1000), m_tidAddress(0)
+    { 
         char buffer[100];
         snprintf(buffer,100,"@t::ProcessInfo::@p():@l ");
         m_dbg.init( buffer, debug_level, 0,Output::STDOUT );
@@ -59,8 +95,9 @@ class ProcessInfo {
         m_pageShift = obj.m_pageShift;
         m_ppid = obj.m_pid;
         m_pgid = obj.m_pgid;
-        m_coreCount = obj.m_coreCount;
-       
+        m_cpusMask = obj.m_cpusMask;
+        m_numLogicalCores = obj.m_numLogicalCores;
+
         m_futex = new Futex;
         m_threadGrp = new ThreadGrp();
         m_threadGrp->add( this, gettid() );
@@ -72,12 +109,12 @@ class ProcessInfo {
         openFileWithFd( "stderr-" + std::to_string(m_pid), O_CREAT | O_RDWR | O_TRUNC, S_IRUSR | S_IWUSR, 2 );
 
         m_fileTable->update( obj.m_fileTable );
-        m_cpusMask.resize((m_coreCount + 7) / 8, 0xFF); 
     }
 
-    ProcessInfo( MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo, int debug_level, unsigned pageSize, uint64_t coreCount, Params& params )
-        : m_mmu(mmu), m_physMemMgr(physMemMgr), m_pid(pid), m_ppid(0), m_pgid(pid), m_tid(pid), m_uid(8000), m_gid(1000),
-          m_elfInfo(elfInfo), m_pageSize(pageSize), m_coreCount(coreCount), m_params(params), m_tidAddress(0)
+    ProcessInfo( MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo,
+            int debug_level, unsigned pageSize, uint64_t numLogicalCores, Params& params ) :
+          m_mmu(mmu), m_physMemMgr(physMemMgr), m_pid(pid), m_ppid(0), m_pgid(pid), m_tid(pid), m_uid(8000), m_gid(1000),
+          m_elfInfo(elfInfo), m_pageSize(pageSize), m_numLogicalCores(numLogicalCores), m_params(params), m_tidAddress(0)
     {
         uint64_t initial_brk = 0;
         char buffer[100];
@@ -91,7 +128,11 @@ class ProcessInfo {
         m_threadGrp->add( this, gettid() );
         m_virtMemMap = new VirtMemMap;
         m_fileTable = new FileDescriptorTable( 1024 ); 
-        m_cpusMask.resize((m_coreCount + 7) / 8, 0xFF); 
+
+        m_cpusMask.resize( 128, 0 );
+        for ( size_t i = 0; i < m_numLogicalCores; ++i ) {
+            setLogicalCoreAffinity( i );
+        }
 
         for ( size_t i = 0; i < m_elfInfo->countProgramHeaders(); ++i ) {
 
@@ -129,13 +170,14 @@ class ProcessInfo {
         }
         
         initBrk( initial_brk );
-
         printRegions("after text/bss setup");
     }
 
     ProcessInfo( SST::Output* output, std::string checkpointDir,
-        MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo, int debug_level, unsigned pageSize , uint64_t coreCount)
-        : m_mmu(mmu), m_physMemMgr(physMemMgr), m_pid(pid), m_pgid(pid), m_tid(pid), m_elfInfo(elfInfo), m_pageSize(pageSize), m_coreCount(coreCount)
+        MMU_Lib::MMU* mmu, PhysMemManager* physMemMgr, int node, unsigned pid, VanadisELFInfo* elfInfo,
+        int debug_level, unsigned pageSize , uint64_t numLogicalCores)
+            : m_mmu(mmu), m_physMemMgr(physMemMgr), m_pid(pid), m_pgid(pid), m_tid(pid), m_elfInfo(elfInfo),
+            m_pageSize(pageSize), m_numLogicalCores(numLogicalCores)
     {
         std::stringstream filename;
         filename << checkpointDir << "/process-"  << getpid();
@@ -188,7 +230,10 @@ class ProcessInfo {
         m_threadGrp = new ThreadGrp;
         m_futex = new Futex;
 
-        m_cpusMask.resize((m_coreCount + 7) / 8, 0xFF); 
+        m_cpusMask.resize( 128, 0 );
+        for ( size_t i = 0; i < m_numLogicalCores; ++i ) {
+            setLogicalCoreAffinity( i );
+        }
         
         size_t size;
         assert( 1 == fscanf(fp,"m_params.size() %zu\n",&size) );
@@ -419,6 +464,9 @@ class ProcessInfo {
         m_hwThread = id.hwThread;
     } 
 
+    void setCore( uint32_t core ) { m_core = core; } 
+    void setHwThread( uint32_t hwThread ) { m_hwThread = hwThread; } 
+
     void settid( unsigned id ) { m_tid = id; }
     void setppid( unsigned id ) { m_ppid = id; }
     void setpgid( unsigned id ) { m_pgid = id; }
@@ -452,15 +500,15 @@ class ProcessInfo {
         return m_fileTable->getPath( handle ); 
     }
 
-    void setAffinity(const std::vector<uint8_t>& new_mask) {
-        m_cpusMask = new_mask;
+    void setAffinity(const std::vector<uint8_t>& mask) { m_cpusMask = mask; }
+    std::vector<uint8_t> getAffinity() const { return m_cpusMask; }
+
+    void setLogicalCoreAffinity(uint64_t core) {
+        m_cpusMask[(core / 8)] |= (1 << (core % 8));
     }
 
-    bool isCoreAllowed(unsigned core) const {
-        unsigned byte_index = core / 8;
-        unsigned bit_pos    = core % 8;
-        if (byte_index >= m_cpusMask.size()) return false;
-        return (m_cpusMask[byte_index] & (1 << bit_pos)) != 0;
+    bool getLogicalCoreAffinity(uint64_t core) {
+        return (m_cpusMask[core / 8] & (1 << (core % 8))) != 0;
     }
 
     Params& getParams() { return m_params; }
@@ -501,7 +549,7 @@ class ProcessInfo {
     uint64_t m_tidAddress;
 
     std::vector<uint8_t> m_cpusMask;
-    uint64_t m_coreCount;
+    uint64_t m_numLogicalCores;
 
     MMU_Lib::MMU*           m_mmu;
     PhysMemManager*         m_physMemMgr;

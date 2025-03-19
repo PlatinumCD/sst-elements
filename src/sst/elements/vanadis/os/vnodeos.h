@@ -30,12 +30,14 @@
 #include "os/include/process.h"
 
 #include "os/req/vosstartthreadreq.h"
+#include "os/resp/voscontextresp.h"
 
 #include "os/syscall/fork.h"
 #include "os/syscall/clone.h"
 #include "os/syscall/exit.h"
 #include "os/syscall/syscall.h"
 
+#include "datastruct/cqueue.h"
 
 using namespace SST::Interfaces;
 
@@ -151,7 +153,7 @@ private:
     virtual void init(unsigned int phase);
     void setup();
     void finish();
-    void handleIncomingSyscall(SST::Event* ev);
+    void recvHWEvent(SST::Event* ev);
     VanadisSyscall* handleIncomingSyscall( OS::ProcessInfo*, VanadisSyscallEvent*, SST::Link* core_link );
     void processSyscallPost( VanadisSyscall* syscall );
 
@@ -245,12 +247,38 @@ private:
 
     class HardwareThreadInfo {
       public:
-        HardwareThreadInfo( ) : m_processInfo(nullptr), m_syscall(nullptr) {}
+        HardwareThreadInfo( ) : m_processInfo(nullptr), m_syscall(nullptr) {
+            m_readyQueue = new VanadisCircularQueue<OS::TaskContext*>(64);
+        }
+
         void setProcess( OS::ProcessInfo* process ) { m_processInfo = process; }
         void setSyscall( VanadisSyscall* syscall ) { assert( nullptr == m_syscall ); m_syscall = syscall; }
         void clearSyscall( ) { assert(m_syscall); m_syscall = nullptr; }
         OS::ProcessInfo* getProcess() { return m_processInfo; }
         VanadisSyscall* getSyscall() { return m_syscall; }
+
+        size_t getQueueSize() { return m_readyQueue->size(); }
+        void pushContext( OS::TaskContext* ctx ) { m_readyQueue->push(ctx); }
+        OS::TaskContext* popContext() { 
+            if (!m_readyQueue->empty()) {
+                OS::TaskContext* ctx = m_readyQueue->pop();
+                return ctx;
+            }
+            return nullptr;
+        }
+
+        void printReadyQueue( unsigned hwThread ) {
+            if (m_processInfo) {
+                printf("\t\t\tHWThread %d Active : %d\n", hwThread, m_processInfo->gettid());
+            } else {
+                printf("\t\t\tHWThread %d Active : \n", hwThread);
+            }
+            for (int i = 0; i < m_readyQueue->size(); i++) {
+                int tid = m_readyQueue->peekAt(i)->getTid();
+                printf("\t\t\t\t* %d\n", tid);
+            }
+        }
+
         void checkpoint( FILE* fp ) {
             if ( m_processInfo ) {
                 fprintf(fp,"pid,tid: %d,%d\n",m_processInfo->getpid(),m_processInfo->gettid());
@@ -259,9 +287,11 @@ private:
             }
             assert( nullptr == m_syscall );
         }
+
       private:
         OS::ProcessInfo* m_processInfo;
         VanadisSyscall* m_syscall;
+        VanadisCircularQueue<OS::TaskContext*>* m_readyQueue;
     };
 
     class CoreInfo {
@@ -273,6 +303,16 @@ private:
 
         OS::ProcessInfo* getProcess( unsigned hwThread ) { return m_hwThreadMap.at(hwThread).getProcess(); }
         VanadisSyscall* getSyscall( unsigned hwThread ) { return m_hwThreadMap.at(hwThread).getSyscall(); }
+
+        size_t getReadyQueueSize( unsigned hwThread ) { return m_hwThreadMap.at(hwThread).getQueueSize(); }
+        void pushContext( unsigned hwThread, OS::TaskContext* ctx ) { m_hwThreadMap.at(hwThread).pushContext(ctx); }
+        OS::TaskContext* popContext( unsigned hwThread ) { return m_hwThreadMap.at(hwThread).popContext(); }
+
+        void printQueues() {
+            for (int i = 0; i < m_hwThreadMap.size(); i++) {
+                m_hwThreadMap.at(i).printReadyQueue( i );
+            }
+        }
 
         void checkpoint( FILE* fp ) {
             fprintf(fp, "m_hwThreadMap.size(): %zu\n",m_hwThreadMap.size());
@@ -299,6 +339,10 @@ public:
 
     void setProcess( int core, int hwThread,  OS::ProcessInfo* process ) {
         m_coreInfoMap.at(core).setProcess( hwThread, process );
+    }
+
+    OS::ProcessInfo* getProcess( int core, int hwThread ) {
+        return m_coreInfoMap.at(core).getProcess( hwThread );
     }
 
     Output* getOutput() { return output; }
@@ -331,8 +375,23 @@ public:
 
         getMMU()->flushTlb( core, hwThread );
 
+//        printf("Remove %d from core %d, thread %d\n", tid, core, hwThread);
         // clear the process/thread to hwThread map 
         m_coreInfoMap.at( core ).setProcess( hwThread, nullptr );
+
+/*        printf("Queues:\n");
+        for (int i = 0; i < m_coreCount; ++i) {
+            printf("Core %d:\n", i);
+            m_coreInfoMap.at(i).printQueues();
+        }
+        printf("\n");
+
+        printf("Remaining:\n");
+        for (auto& kv : m_threadMap) {
+            printf("PID: %d\n", kv.first);
+        }
+        printf("\n");
+*/
 
         // we are puting this hwThread back into avail pool
         // do we need to worry about reallocating it before it gets the halt message, probably not, should put a check in the core to see if idle?
@@ -359,10 +418,15 @@ public:
     int getNodeNum() { return m_nodeNum; }
     int getPageSize() { return m_pageSize; }
     int getPageShift() { return m_pageShift; }
-    uint64_t getCoreCount() { return m_coreCount; }
 
-    void updateProcessAffinity(unsigned pid);
-    void migrateProcessToCore(OS::ProcessInfo* process, unsigned newCore);
+    uint64_t getNumLogicalCores() { return m_numLogicalCores; }
+    uint32_t getNumCores() { return m_coreCount; }
+    uint32_t getNumHwThreads() { return m_hardwareThreadCount; }
+
+    void contextSave( uint32_t tid );
+    void loadNextContext( uint32_t coreId, uint32_t hwThreadId );
+    void handleContextSaveResp( VanadisContextSaveResp* resp ); 
+    uint32_t determineBestLogicalCore( OS::ProcessInfo* process );
 
 private:
 
@@ -380,7 +444,10 @@ private:
     uint64_t                    m_stack_top;
     int                         m_nodeNum;
     uint64_t                    m_osStartTimeNano;
-    uint64_t                    m_coreCount;
+    uint32_t                    m_numHwThreads;
+    uint32_t                    m_coreCount;
+    uint32_t                    m_hardwareThreadCount;
+    uint64_t                    m_numLogicalCores;
 
     std::queue<PageFault*>                          m_pendingFault;
     std::map<std::string, VanadisELFInfo* >         m_elfMap; 

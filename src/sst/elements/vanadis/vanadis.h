@@ -30,9 +30,11 @@
 #include "rocc/vroccinterface.h"
 #include "rocc/vbasicrocc.h"
 
+#include "os/req/vossetthreadidlereq.h"
 #include "os/req/vosgetthreadstatereq.h"
 #include "os/req/vosdumpregsreq.h"
 #include "os/req/voscheckpointreq.h"
+#include "os/req/voscontextreq.h"
 
 #include <array>
 #include <limits>
@@ -279,6 +281,10 @@ private:
     }
 
     void resetHwThread(uint32_t thr);
+
+    void saveContext( VanadisContextSaveReq* req );
+    void loadContext( VanadisContextLoadReq* req );
+    void setThreadIdle( VanadisSetThreadIdleReq* req );
 
     SST::Output* output;
 

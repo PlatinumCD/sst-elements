@@ -23,6 +23,7 @@
 #include "os/resp/vosexitresp.h"
 #include "os/resp/vosgetthreadstateresp.h"
 #include "os/resp/voscheckpointresp.h"
+#include "os/resp/voscontextresp.h"
 
 #include <cstdio>
 #include <sst/core/output.h>
@@ -2250,7 +2251,10 @@ void VANADIS_COMPONENT::recvOSEvent(SST::Event* ev) {
                                 VanadisCheckpointReq* req = dynamic_cast<VanadisCheckpointReq*>(ev);
                                 if ( nullptr != req ) {
 
-                                    output->verbose(CALL_INFO, 0, VANADIS_DBG_CHECKPOINT," checkpoing core=%d thread=%d checkpointing\n", req->coreId, req->hwThread );
+                                    output->verbose(
+                                        CALL_INFO, 0, VANADIS_DBG_CHECKPOINT,
+                                        " checkpoing core=%d thread=%d checkpointing\n",
+                                        req->coreId, req->hwThread );
 
                                     if ( nullptr == m_checkpointing ) {
                                         m_checkpointing = new bool[hw_threads];
@@ -2261,7 +2265,26 @@ void VANADIS_COMPONENT::recvOSEvent(SST::Event* ev) {
 
                                     m_checkpointing[req->hwThread] = true;
                                 } else {
-                                    assert(0);
+                                    VanadisContextSaveReq* req = dynamic_cast<VanadisContextSaveReq*>(ev);
+                                    if ( nullptr != req ) {
+                                        saveContext( req );
+                                        ev = nullptr;
+                                    } else {
+                                        VanadisContextLoadReq* req = dynamic_cast<VanadisContextLoadReq*>(ev);
+                                        if ( nullptr != req ) {
+                                            // Load Req
+                                            loadContext( req );
+                                            ev = nullptr;
+                                        } else {
+                                            VanadisSetThreadIdleReq* req = dynamic_cast<VanadisSetThreadIdleReq*>(ev);
+                                            if ( nullptr != req ) {
+                                                setThreadIdle( req );
+                                                ev = nullptr;
+                                            } else {
+                                                assert(0);
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2276,6 +2299,71 @@ void VANADIS_COMPONENT::recvOSEvent(SST::Event* ev) {
     }
 }
 
+void VANADIS_COMPONENT::saveContext( VanadisContextSaveReq* req )
+{
+    int hw_thr = req->getThread();
+    int tid = req->getTid();
+
+    auto thr_decoder = thread_decoders[hw_thr];
+    auto isa_table = retire_isa_tables[hw_thr];
+    auto reg_file = register_files[hw_thr];
+    uint64_t instPtr = rob[hw_thr]->peekAt(1)->getInstructionAddress();
+    uint64_t tlsPtr = thread_decoders[hw_thr]->getThreadLocalStoragePointer();
+
+    VanadisContextSaveResp* resp = new VanadisContextSaveResp( core_id, hw_thr, tid, instPtr, tlsPtr );
+
+    for ( int i = 0; i < isa_table->getNumIntRegs(); i++ ) {
+        uint64_t val = reg_file->getIntReg<uint64_t>( isa_table->getIntPhysReg( i ) );
+        resp->intRegs.push_back( val );
+    }
+
+    for ( int i = 0; i < isa_table->getNumFpRegs(); i++ ) {
+        if ( thr_decoder->getFPRegisterMode() == VANADIS_REGISTER_MODE_FP32 ) {
+            uint32_t val = reg_file->getFPReg<uint32_t>( isa_table->getFPPhysReg( i ) );
+            resp->fpRegs.push_back( val );
+        } else {
+            uint64_t val = reg_file->getFPReg<uint64_t>( isa_table->getFPPhysReg( i ) );
+            resp->fpRegs.push_back( val );
+        }
+    }
+
+    os_link->send( resp );
+}
+
+void VANADIS_COMPONENT::loadContext( VanadisContextLoadReq* req )
+{
+
+    int hw_thr = req->getThread();
+
+    resetHwThread(hw_thr);
+
+    auto thr_decoder = thread_decoders[hw_thr];
+    auto isa_table = retire_isa_tables[hw_thr];
+    auto reg_file = register_files[hw_thr];
+
+    for ( int i = 0; i < req->intRegs.size(); i++ ) {
+        reg_file->setIntReg<uint64_t>(isa_table->getIntPhysReg(i), req->intRegs[i]);
+    }
+
+    for ( int i = 0; i < req->fpRegs.size(); i++ ) {
+        if ( VANADIS_REGISTER_MODE_FP32 == thr_decoder->getFPRegisterMode() ) {
+            reg_file->setFPReg<uint32_t>(isa_table->getFPPhysReg(i), req->fpRegs[i]);
+        } else {
+            reg_file->setFPReg<uint64_t>(isa_table->getFPPhysReg(i), req->fpRegs[i]);
+        }
+    }
+
+    thr_decoder->setThreadLocalStoragePointer( req->getTlsPtr() );
+    thr_decoder->setInstructionPointer( req->getInstPtr() );
+    halted_masks[hw_thr] = false;
+}
+
+void VANADIS_COMPONENT::setThreadIdle( VanadisSetThreadIdleReq* req )
+{
+    int hw_thr = req->getThread();
+    resetHwThread( hw_thr );
+    halted_masks[hw_thr] = true;
+}
 
 void VANADIS_COMPONENT::startThreadClone( VanadisStartThreadCloneReq* req )
 {
